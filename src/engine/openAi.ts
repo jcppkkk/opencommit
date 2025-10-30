@@ -1,7 +1,11 @@
 import axios from 'axios';
 import { OpenAI } from 'openai';
-import { GenerateCommitMessageErrorEnum } from '../generateCommitMessageFromGitDiff';
+import {
+  EmptyMessageError,
+  GenerateCommitMessageErrorEnum
+} from '../generateCommitMessageFromGitDiff';
 import { parseCustomHeaders } from '../utils/engine';
+import { extractContentTags } from '../utils/extractContentTags';
 import { removeContentTags } from '../utils/removeContentTags';
 import { tokenCount } from '../utils/tokenCount';
 import { AiEngine, AiEngineConfig } from './Engine';
@@ -15,20 +19,18 @@ export class OpenAiEngine implements AiEngine {
   constructor(config: OpenAiConfig) {
     this.config = config;
 
-    const clientOptions: OpenAI.ClientOptions = {
-      apiKey: config.apiKey
+    const customHeaders = config.customHeaders
+      ? parseCustomHeaders(config.customHeaders)
+      : undefined;
+
+    const clientOptions = {
+      apiKey: config.apiKey,
+      ...(config.baseURL && { baseURL: config.baseURL }),
+      ...(customHeaders &&
+        Object.keys(customHeaders).length > 0 && {
+          defaultHeaders: customHeaders
+        })
     };
-
-    if (config.baseURL) {
-      clientOptions.baseURL = config.baseURL;
-    }
-
-    if (config.customHeaders) {
-      const headers = parseCustomHeaders(config.customHeaders);
-      if (Object.keys(headers).length > 0) {
-        clientOptions.defaultHeaders = headers;
-      }
-    }
 
     this.client = new OpenAI(clientOptions);
   }
@@ -95,7 +97,53 @@ export class OpenAiEngine implements AiEngine {
 
       const message = completion.choices[0].message;
       let content = message?.content;
-      return removeContentTags(content, 'think');
+
+      // Try multiple possible tag names for reasoning content
+      // OpenAI reasoning models may use different tag names
+      const possibleTags = ['think', 'redacted_reasoning', 'reasoning'];
+      let cleanedContent = content;
+      let allThinkingContent: string[] = [];
+
+      // Remove all possible reasoning tags and collect thinking content
+      if (cleanedContent && typeof cleanedContent === 'string') {
+        for (const tag of possibleTags) {
+          const thinkingFromTag = extractContentTags(cleanedContent, tag);
+          if (thinkingFromTag.length > 0) {
+            allThinkingContent.push(...thinkingFromTag);
+          }
+          cleanedContent = removeContentTags(cleanedContent, tag);
+        }
+      }
+
+      // If all content was in reasoning tags and resulted in empty string,
+      // throw an error with original content and thinking content for debugging
+      if (
+        content &&
+        typeof content === 'string' &&
+        (!cleanedContent || cleanedContent.trim() === '')
+      ) {
+        throw new EmptyMessageError(
+          GenerateCommitMessageErrorEnum.emptyMessage,
+          content,
+          allThinkingContent.length > 0 ? allThinkingContent : undefined
+        );
+      }
+
+      // If content is null or empty, also provide context if available
+      if (
+        !cleanedContent ||
+        (typeof cleanedContent === 'string' && cleanedContent.trim() === '')
+      ) {
+        // Even if cleaned content is empty, show original content for debugging
+        // This helps debug when token limit is reached mid-generation
+        throw new EmptyMessageError(
+          GenerateCommitMessageErrorEnum.emptyMessage,
+          content || undefined,
+          allThinkingContent.length > 0 ? allThinkingContent : undefined
+        );
+      }
+
+      return cleanedContent;
     } catch (error) {
       const err = error as Error;
       if (axios.isAxiosError<{ error?: { message: string } }>(error)) {

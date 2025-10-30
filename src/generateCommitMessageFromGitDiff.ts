@@ -4,6 +4,7 @@ import { getMainCommitPrompt } from './prompts';
 import { getEngine } from './utils/engine';
 import { mergeDiffs } from './utils/mergeDiffs';
 import { tokenCount } from './utils/tokenCount';
+import { extractContentTags } from './utils/extractContentTags';
 
 const config = getConfig();
 const MAX_TOKENS_INPUT = config.OCO_TOKENS_MAX_INPUT;
@@ -34,6 +35,22 @@ export enum GenerateCommitMessageErrorEnum {
   internalError = 'INTERNAL_ERROR',
   emptyMessage = 'EMPTY_MESSAGE',
   outputTokensTooHigh = `Token limit exceeded, OCO_TOKENS_MAX_OUTPUT must not be much higher than the default ${DEFAULT_TOKEN_LIMITS.DEFAULT_MAX_TOKENS_OUTPUT} tokens.`
+}
+
+export class EmptyMessageError extends Error {
+  originalContent?: string;
+  thinkingContent?: string[];
+
+  constructor(
+    message: string,
+    originalContent?: string,
+    thinkingContent?: string[]
+  ) {
+    super(message);
+    this.name = 'EmptyMessageError';
+    this.originalContent = originalContent;
+    this.thinkingContent = thinkingContent;
+  }
 }
 
 const ADJUSTMENT_FACTOR = 20;
@@ -84,8 +101,11 @@ export const generateCommitMessageByDiff = async (
     const engine = getEngine();
     const commitMessage = await engine.generateCommitMessage(messages);
 
-    if (!commitMessage)
+    if (!commitMessage) {
+      // Try to get additional context from the engine
+      // If available, this will include original content and thinking content
       throw new Error(GenerateCommitMessageErrorEnum.emptyMessage);
+    }
 
     return commitMessage;
   } catch (error) {
@@ -125,7 +145,8 @@ function getMessagesPromisesByChangesInFile(
     async (lineDiff) => {
       const messages = await generateCommitMessageChatCompletionPrompt(
         separator + lineDiff,
-        fullGitMojiSpec
+        fullGitMojiSpec,
+        ''
       );
 
       return engine.generateCommitMessage(messages);
@@ -199,7 +220,8 @@ export const getCommitMsgsPromisesFromFileDiffs = async (
     } else {
       const messages = await generateCommitMessageChatCompletionPrompt(
         separator + fileDiff,
-        fullGitMojiSpec
+        fullGitMojiSpec,
+        ''
       );
 
       const engine = getEngine();
