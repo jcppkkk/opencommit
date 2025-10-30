@@ -36,13 +36,30 @@ export class OpenAiEngine implements AiEngine {
   public generateCommitMessage = async (
     messages: Array<OpenAI.Chat.Completions.ChatCompletionMessageParam>
   ): Promise<string | null> => {
-    const params = {
+    // These OpenAI models require max_completion_tokens instead of max_tokens:
+    // - o1 series (o1, o1-new, o1-mini)
+    // - o3 series (o3, o3-mini)
+    // - o4-mini
+    // - GPT-5 series (gpt-5, gpt-5-mini, gpt-5-nano)
+    const model = this.config.model.toLowerCase();
+    const useMaxCompletionTokens =
+      model.startsWith('o1') || // o1, o1-new, o1-mini
+      model.startsWith('o3') || // o3, o3-mini
+      model.startsWith('o4-mini') || // o4-mini (and variants with date suffixes)
+      model.startsWith('gpt-5'); // gpt-5, gpt-5-mini, gpt-5-nano
+
+    const params: any = {
       model: this.config.model,
       messages,
       temperature: 0,
-      top_p: 0.1,
-      max_tokens: this.config.maxTokensOutput
+      top_p: 0.1
     };
+
+    if (useMaxCompletionTokens) {
+      params.max_completion_tokens = this.config.maxTokensOutput;
+    } else {
+      params.max_tokens = this.config.maxTokensOutput;
+    }
 
     try {
       const REQUEST_TOKENS = messages
@@ -62,13 +79,17 @@ export class OpenAiEngine implements AiEngine {
       return removeContentTags(content, 'think');
     } catch (error) {
       const err = error as Error;
-      if (
-        axios.isAxiosError<{ error?: { message: string } }>(error) &&
-        error.response?.status === 401
-      ) {
-        const openAiError = error.response.data.error;
+      if (axios.isAxiosError<{ error?: { message: string } }>(error)) {
+        const status = error.response?.status;
+        const openAiError = error.response?.data?.error;
 
-        if (openAiError) throw new Error(openAiError.message);
+        if (status === 401 && openAiError) {
+          throw new Error(openAiError.message);
+        }
+
+        if (status === 400 && openAiError) {
+          throw new Error(openAiError.message);
+        }
       }
 
       throw err;
