@@ -211,10 +211,64 @@ ${chalk.grey('——————————————————')}`
       `${chalk.red('✖')} Failed to generate the commit message`
     );
 
-    console.log(error);
-
     const err = error as Error;
-    outro(`${chalk.red('✖')} ${err?.message || err}`);
+    const errorMsg = err?.message || String(err);
+
+    // Provide helpful context for EMPTY_MESSAGE errors
+    let errorMessage = errorMsg;
+    const isEmptyMessage =
+      errorMsg &&
+      (errorMsg === GenerateCommitMessageErrorEnum.emptyMessage ||
+        errorMsg === 'EMPTY_MESSAGE' ||
+        (typeof errorMsg === 'string' && errorMsg.includes('EMPTY_MESSAGE')));
+
+    if (isEmptyMessage) {
+      let additionalInfo = '';
+
+      // If this is an EmptyMessageError with additional context, include it
+      if (err instanceof EmptyMessageError) {
+        if (err.thinkingContent && err.thinkingContent.length > 0) {
+          const thinkingPreview = err.thinkingContent
+            .map((thinking, idx) => {
+              // Limit each thinking block to 200 characters for display
+              const preview =
+                thinking.length > 200
+                  ? thinking.substring(0, 200) + '...'
+                  : thinking;
+              return `  Thinking ${idx + 1}:\n    ${preview.replace(
+                /\n/g,
+                '\n    '
+              )}`;
+            })
+            .join('\n\n');
+
+          additionalInfo = `\n\nModel internal thinking:\n${thinkingPreview}`;
+        }
+
+        if (err.originalContent) {
+          // Show more of the original content for debugging (up to 1000 chars)
+          const originalPreview =
+            err.originalContent.length > 1000
+              ? err.originalContent.substring(0, 1000) + '...'
+              : err.originalContent;
+          additionalInfo += `\n\nOriginal response preview (first ${
+            originalPreview.length
+          } chars):\n${chalk.grey(originalPreview.replace(/\n/g, '\n'))}`;
+        } else if (!err.thinkingContent || err.thinkingContent.length === 0) {
+          // If no original content and no thinking content, it's truly empty
+          additionalInfo += `\n\nNo content received from the model.`;
+        }
+      }
+
+      errorMessage = `EMPTY_MESSAGE. This may happen if:
+- The AI model returned empty content
+- All content was wrapped in thinking/reasoning tags and removed
+- For reasoning models (o1, o3-mini, o4-mini, GPT-5): if OCO_TOKENS_MAX_OUTPUT is too low, the model may use all tokens for internal reasoning and not generate external response
+
+Note: Reasoning models DO output external responses, but need sufficient tokens. Try increasing OCO_TOKENS_MAX_OUTPUT (e.g., 4096 or higher) or using a different model.${additionalInfo}`;
+    }
+
+    outro(`${chalk.red('✖')} ${errorMessage}`);
     process.exit(1);
   }
 };
@@ -303,7 +357,71 @@ export async function commit(
   );
 
   if (generateCommitError) {
-    outro(`${chalk.red('✖')} ${generateCommitError}`);
+    // Provide helpful context for EMPTY_MESSAGE errors
+    const errorMsg = generateCommitError.message || String(generateCommitError);
+    let errorMessage = errorMsg;
+
+    // Check if this is an EMPTY_MESSAGE error using multiple methods
+    // Handle case where errorMsg might be undefined/null
+    const isEmptyMessage =
+      errorMsg &&
+      (errorMsg === GenerateCommitMessageErrorEnum.emptyMessage ||
+        errorMsg === 'EMPTY_MESSAGE' ||
+        (typeof errorMsg === 'string' && errorMsg.includes('EMPTY_MESSAGE')));
+
+    if (isEmptyMessage) {
+      let additionalInfo = '';
+
+      // If this is an EmptyMessageError with additional context, include it
+      if (generateCommitError instanceof EmptyMessageError) {
+        if (
+          generateCommitError.thinkingContent &&
+          generateCommitError.thinkingContent.length > 0
+        ) {
+          const thinkingPreview = generateCommitError.thinkingContent
+            .map((thinking, idx) => {
+              // Limit each thinking block to 200 characters for display
+              const preview =
+                thinking.length > 200
+                  ? thinking.substring(0, 200) + '...'
+                  : thinking;
+              return `  Thinking ${idx + 1}:\n    ${preview.replace(
+                /\n/g,
+                '\n    '
+              )}`;
+            })
+            .join('\n\n');
+
+          additionalInfo = `\n\nModel internal thinking:\n${thinkingPreview}`;
+        }
+
+        if (generateCommitError.originalContent) {
+          // Show more of the original content for debugging (up to 1000 chars)
+          const originalPreview =
+            generateCommitError.originalContent.length > 1000
+              ? generateCommitError.originalContent.substring(0, 1000) + '...'
+              : generateCommitError.originalContent;
+          additionalInfo += `\n\nOriginal response preview (first ${
+            originalPreview.length
+          } chars):\n${chalk.grey(originalPreview.replace(/\n/g, '\n'))}`;
+        } else if (
+          !generateCommitError.thinkingContent ||
+          generateCommitError.thinkingContent.length === 0
+        ) {
+          // If no original content and no thinking content, it's truly empty
+          additionalInfo += `\n\nNo content received from the model.`;
+        }
+      }
+
+      errorMessage = `EMPTY_MESSAGE. This may happen if:
+- The AI model returned empty content
+- All content was wrapped in thinking/reasoning tags and removed
+- For reasoning models (o1, o3-mini, o4-mini, GPT-5): if OCO_TOKENS_MAX_OUTPUT is too low, the model may use all tokens for internal reasoning and not generate external response
+
+Note: Reasoning models DO output external responses, but need sufficient tokens. Try increasing OCO_TOKENS_MAX_OUTPUT (e.g., 4096 or higher) or using a different model.${additionalInfo}`;
+    }
+
+    outro(`${chalk.red('✖')} ${errorMessage}`);
     process.exit(1);
   }
 
