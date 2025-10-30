@@ -10,7 +10,14 @@ import {
 } from '@clack/prompts';
 import chalk from 'chalk';
 import { execa } from 'execa';
-import { generateCommitMessageByDiff } from '../generateCommitMessageFromGitDiff';
+import { promises as fs } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import {
+  EmptyMessageError,
+  generateCommitMessageByDiff,
+  GenerateCommitMessageErrorEnum
+} from '../generateCommitMessageFromGitDiff';
 import {
   assertGitRepo,
   getChangedFiles,
@@ -22,6 +29,50 @@ import { trytm } from '../utils/trytm';
 import { getConfig } from './config';
 
 const config = getConfig();
+
+/**
+ * Opens an external editor for multiline text editing
+ * Uses $EDITOR or $VISUAL environment-owned variable, falls back to vi/nano
+ */
+async function editInExternalEditor(initialContent: string): Promise<string> {
+  // Get editor from environment, fallback to common editors
+  const editor =
+    process.env.EDITOR ||
+    process.env.VISUAL ||
+    (process.platform === 'win32' ? 'notepad.exe' : 'vi');
+
+  // Create a temporary file with the initial content
+  const tmpFile = join(
+    tmpdir(),
+    `opencommit-${Date.now()}-${Math.random().toString(36).substring(7)}.txt`
+  );
+
+  try {
+    // Write initial content to temp file
+    await fs.writeFile(tmpFile, initialContent, 'utf8');
+
+    // Open editor
+    await execa(editor, [tmpFile], {
+      stdio: 'inherit'
+    });
+
+    // Read the edited content
+    const editedContent = await fs.readFile(tmpFile, 'utf8');
+
+    // Remove temporary file
+    await fs.unlink(tmpFile);
+
+    return editedContent.trim();
+  } catch (error) {
+    // Clean up temp file on error
+    try {
+      await fs.unlink(tmpFile);
+    } catch {
+      // Ignore cleanup errors
+    }
+    throw error;
+  }
+}
 
 const getGitRemotes = async () => {
   const { stdout } = await execa('git', ['remote']);
@@ -100,12 +151,20 @@ ${chalk.grey('——————————————————')}`
     if (isCancel(userAction)) process.exit(1);
 
     if (userAction === 'Edit') {
-      const textResponse = await text({
-        message: 'Please edit the commit message: (press Enter to continue)',
-        initialValue: commitMessage
-      });
+      outro(
+        `Opening editor for commit message editing.\n${chalk.grey(
+          'Editor: ' +
+            (process.env.EDITOR ||
+              process.env.VISUAL ||
+              (process.platform === 'win32' ? 'notepad.exe' : 'vi'))
+        )}`
+      );
+      commitMessage = await editInExternalEditor(commitMessage);
 
-      commitMessage = textResponse.toString();
+      if (!commitMessage || commitMessage.trim() === '') {
+        outro(`${chalk.red('✖')} Commit message cannot be empty. Aborting.`);
+        process.exit(1);
+      }
     }
 
     if (userAction === 'Yes' || userAction === 'Edit') {
