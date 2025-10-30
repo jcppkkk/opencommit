@@ -12,9 +12,9 @@ import {
 import { getConfig } from '../../commands/config';
 import { i18n, I18nLocals } from '../../i18n';
 import { IDENTITY, INIT_DIFF_PROMPT } from '../../prompts';
+import { ConsistencyPrompt } from './types';
 
 const config = getConfig();
-const translation = i18n[(config.OCO_LANGUAGE as I18nLocals) || 'en'];
 
 type DeepPartial<T> = {
   [P in keyof T]?: {
@@ -214,11 +214,16 @@ const STRUCTURE_OF_COMMIT = config.OCO_OMIT_SCOPE
 
 // Prompt to generate LLM-readable rules based on @commitlint rules.
 const GEN_COMMITLINT_CONSISTENCY_PROMPT = (
-  prompts: string[]
+  prompts: string[],
+  translation: ConsistencyPrompt
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] => [
   {
     role: 'system',
     content: `${IDENTITY} Your mission is to create clean and comprehensive commit messages for two different changes in a single codebase and output them in the provided JSON format: one for a bug fix and another for a new feature.
+
+IMPORTANT: You MUST write all commit messages and descriptions in ${
+      translation.localLanguage
+    }. Use the exact language and style shown in the example below.
 
 Here are the specific requirements and conventions that should be strictly followed:
 
@@ -247,9 +252,22 @@ JSON Output Format:
 - The "commitDescription" should not include the commit message's header, only the description.
 - Description should not be more than 74 characters.
 
+Reference Example (you MUST follow this language and style):
+\`\`\`json
+{
+  "localLanguage": "${translation.localLanguage}",
+  "commitFix": "${translation.commitFix}",
+  "commitFeat": "${translation.commitFeat}",
+  "commitFixOmitScope": "${translation.commitFixOmitScope}",
+  "commitFeatOmitScope": "${translation.commitFeatOmitScope}",
+  "commitDescription": "${translation.commitDescription}"
+}
+\`\`\`
+
 Additional Details:
 - Changing the variable 'port' to uppercase 'PORT' is considered a bug fix.
 - Allowing the server to listen on a port specified through the environment variable is considered a new feature.
+- Use the same language and writing style as shown in the reference example above.
 
 Example Git Diff is to follow:`
   },
