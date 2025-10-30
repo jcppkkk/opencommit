@@ -42,10 +42,10 @@ export class OpenAiEngine implements AiEngine {
     // - o4-mini
     // - GPT-5 series (gpt-5, gpt-5-mini, gpt-5-nano)
     //
-    // These reasoning models also require temperature=1 (not 0):
-    // - o1 series: only supports temperature=1
-    // - o3-mini, o4-mini: only supports temperature=1
-    // - GPT-5 series: only supports temperature=1
+    // These reasoning models also require temperature=1 (not 0) and do not support top_p:
+    // - o1 series: only supports temperature=1, does not support top_p
+    // - o3-mini, o4-mini: only supports temperature=1, does not support top_p
+    // - GPT-5 series: only supports temperature=1, does not support top_p
     const model = this.config.model.toLowerCase();
     const useMaxCompletionTokens =
       model.startsWith('o1') || // o1, o1-new, o1-mini
@@ -62,15 +62,16 @@ export class OpenAiEngine implements AiEngine {
 
     const params: any = {
       model: this.config.model,
-      messages,
-      top_p: 0.1
+      messages
     };
 
     // Set temperature: reasoning models require 1, others use 0
     if (requiresTemperatureOne) {
       params.temperature = 1;
+      // Reasoning models do not support top_p parameter
     } else {
       params.temperature = 0;
+      params.top_p = 0.1;
     }
 
     if (useMaxCompletionTokens) {
