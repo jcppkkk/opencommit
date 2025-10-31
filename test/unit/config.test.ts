@@ -15,7 +15,10 @@ describe('config', () => {
 
   function resetEnv(env: NodeJS.ProcessEnv) {
     Object.keys(process.env).forEach((key) => {
-      if (!(key in env)) {
+      if (key.startsWith('OCO_')) {
+        // Don't restore OCO_ environment variables to avoid test interference
+        delete process.env[key];
+      } else if (!(key in env)) {
         delete process.env[key];
       } else {
         process.env[key] = env[key];
