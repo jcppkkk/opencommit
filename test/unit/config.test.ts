@@ -10,24 +10,19 @@ import { dirname } from 'path';
 
 describe('config', () => {
   const originalEnv = { ...process.env };
+  const testEnv = Object.fromEntries(
+    Object.entries(originalEnv).filter(([key]) => !key.startsWith('OCO_'))
+  );
   let globalConfigFile: { filePath: string; cleanup: () => Promise<void> };
   let envConfigFile: { filePath: string; cleanup: () => Promise<void> };
 
   function resetEnv(env: NodeJS.ProcessEnv) {
-    Object.keys(process.env).forEach((key) => {
-      if (key.startsWith('OCO_')) {
-        // Don't restore OCO_ environment variables to avoid test interference
-        delete process.env[key];
-      } else if (!(key in env)) {
-        delete process.env[key];
-      } else {
-        process.env[key] = env[key];
-      }
-    });
+    Object.keys(process.env).forEach((key) => delete process.env[key]);
+    Object.assign(process.env, env);
   }
 
   beforeEach(async () => {
-    resetEnv(originalEnv);
+    resetEnv(testEnv);
     if (globalConfigFile) await globalConfigFile.cleanup();
     if (envConfigFile) await envConfigFile.cleanup();
   });
